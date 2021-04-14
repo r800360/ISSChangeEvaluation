@@ -1,10 +1,8 @@
 ' {$STAMP BS2P, BIOS_s1_v1602.bsp, BIOS_s2_v1602.bsp, BIOS_s3_v1602.bsp, BIOS_s4_v1602.bsp, BIOS_s5_v1602.bsp, BIOS_s6_v1602.bsp, BIOS_s7_v1602.bsp}
 ' {$PBASIC 2.5}
-' {$PORT COM28}
+' {$PORT COM18}
 
-'ISS Software Codeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-'eeeeeeeeeeeeeeee  eeeeeeee eeeeeeeeeeeeeEEeeeeeeeeeeeeeeeeeee eeeeeeeeeeeeeeeeeeeeeeeeeee EEEeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee eeeeeeee
-'eeeeeeeeeeeeee eeeeeeeeeeeeeeee
+
 version  CON 1602
 
 '**********************
@@ -12,7 +10,7 @@ version  CON 1602
 '**********************
 
 '
-'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXeXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 'XXXXXXXX >>  Start Here to Copy Header entries  <<  XXXXXXXXXXXXXXXXXX
 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 '
@@ -21,14 +19,27 @@ version  CON 1602
                        'S1 contains test code placeholder
 '
 ' 2012
-' 1. added test for payload interface boardss
+' 1. added test for payload interface boards
 ' 2. clean slot 0, added time 0,1,2 for clock speed
 '
 '******************  Start of System Global lables *******************
 '     Conditional Assemblies
 '
+
+
+
+
+'WARNING Enable the following for test mode
 #DEFINE FlyConfig = 1              '1=Set to Flight Configuration, 0=Test Configuration
-#DEFINE fastclock = 0              '0=Normal Time X1, 1=Medium Time ~X17 2=Fast Time ~X60
+#DEFINE fastclock = 2              '0=Normal Time X1, 1=Medium Time ~X17 2=Fast Time ~X60
+
+
+'WARNING Enable the following for flight mode
+'Remember to set S2 flight mode to disable event test mode
+'#DEFINE FlyConfig = 1              '1=Set to Flight Configuration, 0=Test Configuration
+'#DEFINE fastclock = 0              '0=Normal Time X1, 1=Medium Time ~X17 2=Fast Time ~X60
+
+
 #DEFINE testreset = 1              '1=test reset and reset count
 #DEFINE SaySlot   = 1              '1=Say Slot with vector
 #DEFINE Sayit = 1                  '1=Say what is happening
@@ -446,10 +457,14 @@ GetTestType:
     DEBUG CR,"MicroLab or Payload Test?",CR
     DEBUG "MicroLab Test = s (requires Payload Test Interface)",CR  'Microlab test (Slot 7)
     DEBUG "Payload Test = p",CR                                     'Slot 1 holds Payload Tests
-WhichTest:                                                        ''320
+    DEBUG "Event Test = e",CR
+WhichTest:
     SERIN con_in,con_baud,con_tout,inputtimeout1,[TempReg0] 'get terminal input, timeout at 100ms
     IF TempReg0 = "s" THEN SystemTest                     'if s then jump
     IF TempReg0 = "p" THEN PayloadTest                     'test for p
+#IF FlyConfig = 0 #THEN
+    IF TempReg0 = "e" THEN EventTest
+#ENDIF
     DEBUG CR,"? s or p >",(TempReg0),CR               'incorrect key pushed
     GOTO GetTestType:                                  'try try again - hopeless
 inputtimeout1:
@@ -461,6 +476,14 @@ PayloadTest:
     TempReg1=0   'Destination Index
     TempReg3 =1  'Destination Slot
     GOTO RunSlot
+
+#IF FlyConfig = 0 #THEN
+EventTest:
+    TempReg0=0   'Return Index to SystemInitReturn
+    TempReg1=4   'Destination Index for EventTest
+    TempReg3 =2  'Destination Slot
+    GOTO RunSlot
+#ENDIF
 
 SystemTest:                        'this will go to start running in slot 7
     TempReg1 = 0                   'Set to take the 0 vector in the branch table
@@ -580,7 +603,7 @@ FlightStart:
 '********************************
 '
     #IF fastclock = 0     #THEN
-MoprClk0Val CON 1100 '1st mission operations counter, times to chk masterin base, 1 sec calibration
+MoprClk0Val CON 635 '1st mission operations counter, times to chk masterin base, 1 sec calibration
 MoprClk1Val CON 30   'Heartbeat every 30 sec, seems ok
 MoprClk2Val CON 120  '120 = once per hour count, 120 30sec counts, 240 = every 2 hours
     #ENDIF
@@ -643,7 +666,8 @@ noabort:
          '  Fall through approx every 30 sec normal clock rate for heartbeat
          '
 
-         DEBUG " H"                        ' Output Heartbeat Time stamp and number
+         STORE 0
+         DEBUG " D:H:M "                        ' Output Heartbeat Time stamp and number
          FOR tempword = DurDay TO DurMin
            READ tempword,tempword1
            DEBUG ":",DEC2 tempword1
@@ -719,7 +743,8 @@ McMekAttn1Return:                                 'program will return here afte
 '********************************************
 '  End of  MicroLab program is here
 '********************************************
-        '
+'Data in EEPROM; Order determines address
+
 TagCnt   DATA 00
 DurMin   DATA 00
 DurHour  DATA 00

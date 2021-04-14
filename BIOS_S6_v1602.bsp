@@ -1,6 +1,6 @@
 ' {$STAMP BS2P}
 ' {$PBASIC 2.5}
-' {$PORT COM28}
+' {$PORT COM18}
 
 
 version  CON 1602
@@ -312,7 +312,7 @@ SysCPUcal    CON   $C002    'External E2RAM calibration locations
 '*************************************************************************
   '
   #IF SaySlot = 1 #THEN
-  DEBUG " S6-V",DEC TempReg1
+  DEBUG " S6-V",DEC TempReg1,CR
   #ENDIF
   BRANCH TempReg1,[McMekcommand,       '0 vector flight condition setup override
   TakePhoto,                           '1 after chamber (different return than 2)
@@ -378,12 +378,11 @@ McMekcommand:
   '
   'simulate the master controller inputs to the command processer
   '
-    DEBUG " CP-"
     SEROUT masterout,Baud9600T,[Ack]  'Send Acknowledge command to McMek I'm ready to receive
 '    DEBUG "s ACK",CR   'if sent may be to much time. if command is comming from McMek master
     SERIN masterin ,Baud9600T,1000 ,noinput,[TempReg2]'Wait for request/command from McMek,wait .5 sec for response
-    DEBUG HEX2 TempReg2
-    '
+
+    DEBUG " CP-", HEX2 TempReg2
     '
     '
     IF TempReg2 = $11 THEN GOTO GetMLID           'send MicroLab ID
@@ -478,15 +477,15 @@ TakeandDownload:
   GOTO DumpInText             'will dump in text to McMek
   '
 TakePhoto:
-    DEBUG "tk-"                 'Tell terminal what I am doing now
+    DEBUG "tp-"                 'Tell terminal what I am doing now
     GOSUB TakePhoto1            'take the photo
-    DEBUG "st",CR               'Tell terminal what I am doing now
-    GOTO storephoto             'store the photo
+    DEBUG "sp",CR               'Tell terminal what I am doing now
+    GOTO StorePhoto             'store the photo
   '
 TakePhoto1:
   '
   LOW camerapower               'turn camera power off if on in error recovery
-  PAUSE 500                     '1/2 sec
+  PAUSE 100                     '1/2 sec
    '
   HIGH cameraCS               'set camera chip select to high
   HIGH  camerapower           'set camera power on
@@ -499,7 +498,7 @@ TakePhoto1:
         FOR xcounter = 0 TO 7                                   'set to send string of 7 commands
           LOOKUP xcounter,[$ff,$ff,$ff,$0d,$00,$00,$00,$00],sdata 'set for command to send
           GOSUB manualbytespi                                     'send the byte, while looking at input
-          IF counter=0 THEN DEBUG CR,"hold 7",CR:GOTO TakeandDownload
+          IF counter=0 THEN DEBUG CR,"Cam tout",CR:GOTO TakeandDownload
           text(xcounter) = TempReg3                               'place input into array for later
         NEXT                                                    'send next byte not finished
       IF (text(2) = $FF) & (text(3) = $0E) & (text(4) = $0D) THEN GOTO SyncCamera2  'yes received ack from camera
@@ -758,17 +757,16 @@ NoSlave:                                         'slave did not respond to reque
 '
 '************************************************************************
 StorePhoto:
-    '
     GET ActiveBank,TempReg2    'Get ActiveBank pointer to put photo 0,2,4
     '
     'Put JPG length into file header, Enter with length in "TempWord"...
     '
     xcounter = 8               'point to Length
     I2COUT InternI2c, $A0 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE, [Tempword.HIGHBYTE]
-    PAUSE 9
+    PAUSE 1
     xcounter=xcounter+1
     I2COUT InternI2c, $A0 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE, [Tempword.LOWBYTE]
-    PAUSE 9
+    PAUSE 1
     '
     ' JPG file length now place in the header of the active eeram memory bank
     ' Now store name in header
@@ -778,7 +776,7 @@ StorePhoto:
     FOR counter = 0 TO 6                   'lets move the ascii file name and number to the EERAM
     READ IDcodefile+counter,TempReg0       'Get MSD of file name and number in ascii
     I2COUT InternI2c, $A0 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE, [TempReg0]
-    PAUSE 9                                'must wait for eeram write to finish
+    PAUSE 1                                'must wait for eeram write to finish
     xcounter=xcounter+1                    'point xcounter to next mem location to put file name and  number
     NEXT                                   'xfer to balance of the ascii file numbers
     '
@@ -787,39 +785,43 @@ StorePhoto:
     '
     TempReg0 = "P"                          'Type of file "P" photo (note not used  yet)
     I2COUT InternI2c, $A0 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE, [TempReg0]
-    PAUSE 9                                'must wait for eeram write to finish
+    PAUSE 1                                'must wait for eeram write to finish
     '
     ' Header now finished, time to do data
     '
 
     xcounter = xcounter+3                  'points to 1st byte of jpg file.
+
     DO WHILE (TempWord) > 0        'TempWord still has length of jpg data
-    LOW cameraCS                   'enable the chip select for the camera
-'    PAUSE 3                        'lets wait a little time to settle ??????seem ok for one test??????????????????
-    SHIFTIN cameramiso, cameraclk, LSBFIRST,  [text]  'get the byte from the camera
-    I2COUT InternI2c, $A0 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE, [text] 'store the byte in eeram
-    PAUSE 9
-    '    DEBUG "T=",HEX2 text," X",HEX4 xcounter,CR
-    xcounter=xcounter+1                       'point target to next location
-    IF xcounter.LOWBYTE  <> 0 THEN GOTO NotYetHeart   'no heartbeat yet
-    '
-    DEBUG "*"                      'output to show alive
-    '
-    #IF nodebug = 0 #THEN
-    DEBUG HEX2 TempReg2                      'output to verify bank
-    #ENDIF
-    '
-    IF xcounter.HIGHBYTE & $0F <> 0 THEN GOTO NotYetHeart '
-    '
-    'HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
-    GOTO HeartBeat1                           'do a heartbeat every 4096 stores
+	    LOW cameraCS                   'enable the chip select for the camera
+	    'PAUSE 3                        'lets wait a little time to settle ?
+	    SHIFTIN cameramiso, cameraclk, LSBFIRST,  [text]  'get the byte from the camera
+	    I2COUT InternI2c, $A0 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE, [text] 'store the byte in eeram
+	    'WARNING: CHECK PHOTO UPLOAD RELIABILITY; Unstable if remove
+            PAUSE 1
+	    '    DEBUG "T=",HEX2 text," X",HEX4 xcounter,CR
+	    xcounter=xcounter+1                       'point target to next location
+	    IF xcounter.LOWBYTE  <> 0 THEN GOTO NotYetHeart   'no heartbeat yet
+	    '
+	    DEBUG "*"                      'output to show alive
+	    '
+	    '#IF nodebug = 0 #THEN
+	    'DEBUG HEX2 TempReg2                      'output to verify bank
+	    '#ENDIF
+	    '
+	    IF xcounter.HIGHBYTE & $0F <> 0 THEN GOTO NotYetHeart '
+	    '
+	    'HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+	    GOTO HeartBeat1                           'do a heartbeat every 4096 stores
 HeartBeat1Return:                             'will return back here from heartbeat
-    'HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
-    '
+	    'HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+	    '
 NotYetHeart:
-    HIGH cameraCS                             'deselect camera
-    TempWord = TempWord - 1                   'dec data count, count the read
+	    HIGH cameraCS                             'deselect camera
+	    TempWord = TempWord - 1                   'dec data count, count the read
+	    'Go back to StorePhoto: Do/while loop to continue saving photo
     LOOP                                      'loop until done
+
     LOW camerapower                           'Turn camera off
     '
     'Data jpg now transfered from the camera to the ee2ram in the active bank
@@ -898,9 +900,9 @@ UpLoadFB:
     Tempword.LOWBYTE = Tempreg0
     SEROUT masterout,Baud9600T,[TempReg0]     ' send low byte This is Binary
     '
- DEBUG CR,HEX4 TempWord 'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+    'DEBUG CR,HEX4 TempWord 'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
     xcounter = xcounter + 1   'now points to the first byte of the jpg file
-    PAUSE 5                   'Pause 1 millisec to allow master processing of length plus others
+    PAUSE 1                   'Pause 1 millisec to allow master processing of length plus others
     '
     'Now send the jpg data for the length of TempWord
     '
@@ -909,10 +911,10 @@ Blocksize CON 1023 'set block size block size+1 is actual
     '
 nextblock:
     FOR TempWord1 = 0 TO Blocksize
-    I2CIN InternI2c, $A1 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE,[TempReg0]  'first byte is  Name
-    SEROUT masterout,Baud9600T,[TempReg0]                'send jpg data
-    xcounter = xcounter + 1                              'to next byte of photo
-    TempWord = TempWord - 1
+	    I2CIN InternI2c, $A1 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE,[TempReg0]  'first byte is  Name
+	    SEROUT masterout,Baud9600T,[TempReg0]                'send jpg data
+	    xcounter = xcounter + 1                              'to next byte of photo
+	    TempWord = TempWord - 1
     NEXT
     '
     '  Now we wait for ack
@@ -927,10 +929,10 @@ nextblock:
     '  This sends the last block which is blocksize of less bytes
     '
     DO WHILE (TempWord) > 0
-    I2CIN InternI2c, $A1 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE,[TempReg0]  'first byte is  Name
-    SEROUT masterout,Baud9600T,[TempReg0]                'send jpg data
-    xcounter = xcounter + 1                              'to next byte of photo
-    TempWord = TempWord - 1
+	    I2CIN InternI2c, $A1 | TempReg2,xcounter.HIGHBYTE\xcounter.LOWBYTE,[TempReg0]  'first byte is  Name
+	    SEROUT masterout,Baud9600T,[TempReg0]                'send jpg data
+	    xcounter = xcounter + 1                              'to next byte of photo
+	    TempWord = TempWord - 1
     LOOP
     '
     '
@@ -939,7 +941,7 @@ nextblock:
     '
     ' Jpg photo data finished up loading, Now need to upload the associated text file
     '
-    PAUSE 10     'wait for 4 millisec between jpg data finished and text starting
+    PAUSE 4     'wait for 4 millisec between jpg data finished and text starting
     '
     ' Upload text file in this bank
     '

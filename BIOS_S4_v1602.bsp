@@ -1,6 +1,6 @@
 ' {$STAMP BS2P}
 ' {$PBASIC 2.5}
-' {$PORT COM28}
+' {$PORT COM18}
 
 
 version  CON 1602
@@ -364,15 +364,10 @@ ReturnBack:
 '
  '======================================================================
 P1vector:
-   GOTO ReturnBack      'back to calling routine
-    '======================================================================
 P2vector:
-  GOTO ReturnBack      'back to calling routine
-    '======================================================================
 P3vector:
-  GOTO ReturnBack      'back to calling routine
-  '
-  '
+   GOTO ReturnBack      'back to calling routine
+
 '********************************************************
 '  Heart Beat Proceedure, Place the return index vector number
 '  in TempReg0 so when Heart Beat is finished the program knows

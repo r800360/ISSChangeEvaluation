@@ -1,6 +1,6 @@
 ' {$STAMP BS2P}
 ' {$PBASIC 2.5}
-' {$PORT COM28}
+' {$PORT COM18}
 
 
 version  CON 1602
@@ -387,16 +387,9 @@ ReturnBack:
   '
     '======================================================================
 P2vector:
-        '
-        '
-  GOTO ReturnBack      'back to calling routine
-  '
-    '======================================================================
 P3vector:
-  '
-  '
   GOTO ReturnBack      'back to calling routine
-  '
+
 '*************************************************
 '*  Testing routine to move data to download file location at $30000
 '

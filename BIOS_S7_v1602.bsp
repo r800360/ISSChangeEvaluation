@@ -1,7 +1,6 @@
-
 ' {$STAMP BS2P}
 ' {$PBASIC 2.5}
-' {$PORT COM28}
+' {$PORT COM18}
 
 
 version  CON 1602
@@ -17,7 +16,7 @@ version  CON 1602
 '
                        'S0 contains the timing loop
                        'S2 contains the event table AND actions.
-                       'S1 contains test code placeholder                   320
+                       'S1 contains test code placeholder
 '
 ' 2012
 ' 1. added test for payload interface boards
@@ -353,7 +352,7 @@ HeartBeatfromtext:               'forced outside system
 systeminit:
   INPUT   internalscl 'Set internal SLC buss high
   INPUT   internalsda 'Set internal SDA buss high
-  I2COUT InternI2c, PCF8574address, [$FF] 'Set Output of 8574 for input all High
+  I2COUT InternI2c, PCF8574address, [$0] 'Set Output of 8574 for input all low
   LOW     cameraclk   'Set camera clock to logic low
   OUTPUT  cameraclk   'Set camera clock to output
   INPUT   cameramiso  'Set camera miso to receive from camera
@@ -383,6 +382,21 @@ systeminit:
   PUT     TextPointer,$C000           'Text start
 '
   PUT   MLabStatus,$20                'Default none zero status response
+
+  'Reset Duration Clocks in EEPROM
+  STORE 0
+  DurMin    CON 1
+  DurHour   CON 2
+  DurDay    CON 3
+  WRITE DurMin, 0
+  WRITE DurHour, 0
+  WRITE DurDay, 0
+  STORE DataStorage
+  WRITE Missionsec, 0
+  WRITE Missionmin, 0
+  WRITE Missionhour, 0
+  WRITE Missionday, 0
+
 '
   '-------- Setup other conditions here  ------
 '

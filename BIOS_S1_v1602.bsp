@@ -1,9 +1,7 @@
 ' {$STAMP BS2P}
 ' {$PBASIC 2.5}
-' {$PORT COM28}
+' {$PORT COM18}
 
-
-'ISS Team L   ee
 
 version  CON 1602
 
@@ -366,20 +364,16 @@ ReturnBack:
     '======================================================================
 PayloadTest:  'Payload test procedures and flight preparation utilities (priming, etc)
   PayloadOptionsText:
-  DEBUG CR
-  DEBUG "LED ON  PIN 2 On/OFF = 2",CR
-  DEBUG "Motor On Pin 4 On/OFf = 4",CR
-  DEBUG "Motor On Pin 5 On/Off = 5",CR
-  DEBUG "Pump On Pin 6 On/Off = 6",CR
-  DEBUG "Pump On Pin 7 On/Off = 7",CR
-  DEBUG "Payload Pin 8 On/Off (toggle) = 8",CR
-  DEBUG "Payload Pin 9 On/Off (toggle) = 9",CR
-  DEBUG "All Payload Pins Off = 0",CR
+  DEBUG "Water Pump On Pin 0/1 Forward/Off = 0",CR
+  DEBUG "Water Pump On Pin 0/1 Backward/Off = 1",CR
+  DEBUG "Not used = 2",CR
+  DEBUG "LED ON  PIN 2/3 Off = 3",CR
+  DEBUG "Not used  = 4",CR
+  DEBUG "Motor On Pin 5 Forward/Off = 5",CR
+  DEBUG "Oil Pump On Pin 6/7 Forward/Off = 6",CR
+  DEBUG "Oil Pump On Pin 6/7 Backward/Off = 7",CR
+  DEBUG "All Payload Pins Off = f",CR
   DEBUG "Exit Payload Test = e",CR
-  DEBUG "COntinous Helix = C",CR
-  DEBUG "Interval Helix - I",CR
-  DEBUG "CC Continous Helix = A",CR
-  DEBUG "CC Interval Helix = B",CR
 Ready:
 
 
@@ -397,28 +391,21 @@ PayloadOptions:
 HeartBeatReturn:
     DEBUG CR, "HeatBeat Done. Payload test number? > ",CR
 
-    IF UserVar0 = "8" THEN PayloadTestP8              'Payload Board Circuit test 1
-    IF UserVar0 = "9" THEN PayloadTestP9              'Payload Board Circuit test 2
-    IF UserVar0 = "0" THEN PayloadTestoff            'Payload Board Circuit test 2
+    IF UserVar0 = "f" THEN PayloadTestoff            'Payload Board Circuit test 2
     IF UserVar0 =$20 THEN PayloadOptionsText
     IF UserVar0 =CR THEN PayloadOptionsText
     IF UserVar0 = "e" THEN PayloadExit               'Exit Payload Board Test and Load
-    IF UserVar0 = "6" THEN PayloadTestP6
-    IF UserVar0 = "7" THEN PayloadTestP7
+    IF UserVar0 = "0" THEN PayloadTestP0
+    IF UserVar0 = "1" THEN PayloadTestP1
     IF UserVar0 = "2" THEN PayloadTestP2
-    'IF UserVar0 = "3" THEN PayloadTestP3
+    IF UserVar0 = "3" THEN PayloadTestP3
     IF UserVar0 = "4" THEN PayloadTestP4
     IF UserVar0 = "5" THEN PayloadTestP5
-    IF UserVar0 = "C" THEN PayloadCHelix
-    IF UserVar0 = "I" THEN PayloadIHelix
-    IF UserVar0 = "A" THEN PayloadCCHelix
-    IF UserVar0 = "B" THEN PayloadCIHelix
-
-
-
+    IF UserVar0 = "6" THEN PayloadTestP6
+    IF UserVar0 = "7" THEN PayloadTestP7
 
     DEBUG CR,"I/O Error= ",(TempReg0),CR                 'incorrect key pushed
-    GOTO PayloadOptionstext:
+    GOTO PayloadOptionstext
 
 inputtimeout:
     IF masterin = 1 THEN GOTO PayloadOptions 'nothing yet
@@ -430,66 +417,82 @@ inputtimeout:
     TempReg3 = 6                   'Set to goto Slot 6
     GOTO GotoSlot                  'go to McMek command interpreter ----
 
-PayloadTestP6:
-    DEBUG CR,"Pin 6 is low",CR
-    I2COUT InternI2C, PCF8574address, [%10111111]
-    GOTO PayloadOptionsText
+
 PayloadTestP7:
-    DEBUG CR,"Pin 7 is low",CR
-    I2COUT InternI2C, PCF8574address, [%01111111]
+    I2CIN  InternI2C, PCF8574address, [UserVar5]
+    IF (UserVar5 & %11000000) <> %11000000 THEN
+      I2COUT InternI2C, PCF8574address, [UserVar5 | %11000000]
+    ELSE
+      I2COUT InternI2C, PCF8574address, [UserVar5 & %01111111]
+    ENDIF
     GOTO PayloadOptionsText
+
+PayloadTestP6:
+    I2CIN  InternI2C, PCF8574address, [UserVar5]
+    IF (UserVar5 & %11000000) <> %11000000 THEN
+      I2COUT InternI2C, PCF8574address, [UserVar5 | %11000000]
+    ELSE
+      I2COUT InternI2C, PCF8574address, [UserVar5 & %10111111]
+    ENDIF
+    GOTO PayloadOptionsText
+
 PayloadTestP5:
-    DEBUG CR,"Pin 5 is low",CR
-    I2COUT InternI2C, PCF8574address, [%11011111]
+    'Motor On/Off
+    I2CIN  InternI2C, PCF8574address, [UserVar5]
+    IF (UserVar5 & %00100000) <> %00100000 THEN
+      'Turn on
+      I2COUT InternI2C, PCF8574address, [UserVar5 | %00100000]
+    ELSE
+      I2COUT InternI2C, PCF8574address, [UserVar5 & %11011111]
+    ENDIF
     GOTO PayloadOptionsText
 PayloadTestP4:
-    DEBUG CR,"Pin 4 is low",CR
-    I2COUT InternI2C, PCF8574address, [%11101111]
+    I2CIN  InternI2C, PCF8574address, [UserVar5]
+    IF (UserVar5 & %00110000) <> %00110000 THEN
+      I2COUT InternI2C, PCF8574address, [UserVar5 | %00110000]
+    ELSE
+      I2COUT InternI2C, PCF8574address, [UserVar5 & %11101111]
+    ENDIF
     GOTO PayloadOptionsText
+
+PayloadTestP3:
+    I2CIN  InternI2C, PCF8574address, [UserVar5]
+    IF (UserVar5 & %00001000) <> %00001000 THEN
+      'Turn on LED
+      I2COUT InternI2C, PCF8574address, [UserVar5 | %00001000]
+    ELSE
+      I2COUT InternI2C, PCF8574address, [UserVar5 & %11110111]
+    ENDIF
+
+    GOTO PayloadOptionsText
+
 PayloadTestP2:
-    DEBUG CR,"Pin 2 is low",CR
-    I2COUT InternI2c, PCF8574address, [%11111011]
+    I2CIN  InternI2C, PCF8574address, [UserVar5]
+    I2COUT InternI2c, PCF8574address, [UserVar5 & %11111011]
     GOTO PayloadOptionsText
-'PayloadTestP3:
-    'DEBUG CR,"Pin 3 is low",CR
-    'I2COUT InternI2c, PCF8574address, [%]
-PayloadTestP8:
-     DEBUG CR,"NL Pin 8 is low",CR
-     LOW 8 'Output low on Pin 8.
-     GOTO PayloadOptionsText
-PayloadTestP9:
-     DEBUG CR,"NL Pin 9 is low",CR
-     LOW 9 'Output low on Pin 9
-     GOTO PayloadOptionsText
+
+PayloadTestP1:
+    I2CIN  InternI2C, PCF8574address, [UserVar5]
+    IF (UserVar5 & %00000011) <> %00000011 THEN
+      I2COUT InternI2C, PCF8574address, [UserVar5 | %00000011]
+    ELSE
+      I2COUT InternI2C, PCF8574address, [UserVar5 & %11111101]
+    ENDIF
+    GOTO PayloadOptionsText
+
+PayloadTestP0:
+    I2CIN  InternI2C, PCF8574address, [UserVar5]
+    IF (UserVar5 & %00000011) <> %00000011 THEN
+      I2COUT InternI2C, PCF8574address, [UserVar5 | %00000011]
+    ELSE
+      I2COUT InternI2C, PCF8574address, [UserVar5 & %11111110]
+    ENDIF
+    GOTO PayloadOptionsText
+
 PayloadTestOff:
-     DEBUG CR,"Pins 8 and 9 High",CR
      HIGH 8 : HIGH 9
      I2COUT InternI2C, PCF8574address, [$FF]
      GOTO PayloadOptionsText
-PayloadCHelix:
-    DEBUG CR,"Pins 4 and 6 Low",CR
-    I2COUT InternI2C, PCF8574address, [%10101111]
-    GOTO PayloadOptionsText
-PayloadIHelix:
-    DEBUG CR,"Pins 4 and 6 Low",CR
-    I2COUT InternI2C, PCF8574address, [%10101111]
-    PAUSE 6000
-    I2COUT InternI2C, PCF8574address, [$FF]
-    GOTO PayloadOptionsText
-PayloadCCHelix:
-    DEBUG CR,"Pins 5 and 6 Low",CR
-    I2COUT InternI2C, PCF8574address, [%10011111]
-    GOTO PayloadOptionsText
-PayloadCIHelix:
-    DEBUG CR,"Pins 5 and 6 Low",CR
-    I2COUT InternI2C, PCF8574address, [%10011111]
-    PAUSE 6000
-    I2COUT InternI2C, PCF8574address, [$FF]
-    GOTO PayloadOptionsText
-
-
-
-
 
 PayloadExit:
      TempReg0=0 'Call Index: SystemInitReturn
@@ -502,19 +505,6 @@ PayloadExit:
   '
   '======================================================================
 P1vector:
-        '
-        '
-  GOTO ReturnBack      'back to calling routine
-
-  '
-    '======================================================================
 P2vector:
-        '
-        '
-  GOTO ReturnBack      'back to calling routine
-  '
-    '======================================================================
 P3vector:
-  '
-  '
   GOTO ReturnBack      'back to calling routine

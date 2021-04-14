@@ -1,8 +1,8 @@
 ' {$STAMP BS2P}
 ' {$PBASIC 2.5}
-' {$PORT COM28}
+' {$PORT COM18}
 
-'ISS Team L Software CodeeeeeeeeeeeEEeee eeeeeeee  eee
+
 version  CON 1602
 
 '**********************
@@ -25,6 +25,9 @@ version  CON 1602
 '******************  Start of System Global lables *******************
 '     Conditional Assemblies
 '
+
+'WARNING REMEMBER to set FlyConfig in final flight mode
+
 #DEFINE FlyConfig = 0              '1=Set to Flight Configuration, 0=Test Configuration
 #DEFINE fastclock = 0              '0=Normal Time X1, 1=Medium Time ~X17 2=Fast Time ~X60
 #DEFINE testreset = 1              '1=test reset and reset count
@@ -234,7 +237,7 @@ cameraCS          CON 15      'camrea chip select pin
 '
 ' Input terminal constants for test set to
 con_in       CON 16          'Pin 16 is BS2P serial in from RS232 connector
-con_baud     CON 240         'set TO 9600 8Bit true
+con_baud     CON 240         'set to 9600 8bit true
 con_tout     CON 250         'time out waiting for terminal input appx 100ms
 '
 '----------------- Bios General constants ---------------------------
@@ -317,7 +320,8 @@ SysCPUcal    CON   $C002    'External E2RAM calibration locations
   BRANCH TempReg1,[EventTable,         '0 Event Table
   TakePhotoReturn,                     '1 vector to this program
   P2vector,                            '2 vector to this program
-  P3vector]                            '3 vector to this program
+  P3vector,                            '3 vector to this program
+  EventTest]                           '4 Event test
   '
 
 '*************************************************************************
@@ -362,26 +366,60 @@ ReturnBack:
 'XXXXXXXXXXXXXXXXXXXX   Programs in this slot  XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 '
-    '======================================================================
+
+EventTest:
+#IF FlyConfig <> 0 #THEN
+  GOTO EventTable
+#ENDIF
+
+  DEBUG "Input 0-6 to run event test; x to exit",CR
+  UserVar4 = $ED
+  SERIN con_in,con_baud, con_tout * 10, inputtimeout,[UserVar0]
+  IF UserVar0 = "0" THEN Event0_ET_RET
+  IF UserVar0 = "1" THEN Event1_TAKE_PHOTO
+  IF UserVar0 = "2" THEN Event2_PUMP_FORWARD
+  IF UserVar0 = "3" THEN Event3_PUMP_BACK
+  IF UserVar0 = "4" THEN Event4_PUMP_STOP
+  IF UserVar0 = "5" THEN Event5_LED_ON
+  IF UserVar0 = "6" THEN Event6_LED_OFF
+  IF UserVar0 = "x" THEN
+      UserVar4 = 0
+      GOTO Event0_ET_RET
+  ENDIF
+
+  GOTO EventTest
+
+inputtimeout:
+  DEBUG CR,"doing heartbeat",CR
+  TempReg0 = 4    'Return Index - EventTest
+  TempReg1 = 1    'Destination Index: HeartBeat
+  TempReg3 = 7    'Destination Slot
+  GOTO GotoSlot
+
  EventTable:
   TagCnt    CON 0     'hard coded Slot 0 program memory data addresses
   DurMin    CON 1
   DurHour   CON 2
   DurDay    CON 3
 
+
+  STORE DataStorage
+  READ Missionmin,UserVar0   'Copy Mission Clock to RAM
+  READ Missionhour,UserVar1
+  READ Missionday,UserVar2
+  DEBUG CR,"Mission clock (D:H:M):",DEC UserVar2,":",DEC UserVar1,":",DEC UserVar0,CR,CR
+
   STORE 0
   READ DurMin,UserVar0
   READ DurHour,UserVar1
   READ DurDay,UserVar2
-  DEBUG CR,"Event table received (H D M):",DEC uservar2," ",DEC uservar1," ",DEC uservar0,CR,CR
-
-  'READ Missionmin,UserVar0   'Copy Mission Clock to RAM
-  'READ Missionhour,UserVar1
-  'READ Missionday,UserVar2
+  DEBUG CR,"Event table received (D:H:M):",DEC UserVar2,":",DEC UserVar1,":",DEC UserVar0,CR,CR
   UserVar3 = 0 'Set EventByte to default "no event"
 
- STORE 2      'Event Table is stored in this slot
-  FOR TempReg0 = 0 TO 10
+  STORE 2      'Event Table is stored in this slot
+
+  'WARNING: change loop count to match EventTable size
+  FOR TempReg0 = 0 TO ETABLE_DEPTH
     READ ETable+TempReg0*5+0,TempReg1 : IF TempReg1 <> UserVar2 THEN GOTO NextRow  'Check Day
     READ ETable+TempReg0*5+1,TempReg1 : IF TempReg1 <> UserVar1 THEN GOTO NextRow 'Check Hour
     READ ETable+TempReg0*5+2,TempReg1 : IF TempReg1 <> UserVar0 THEN GOTO NextRow 'Check Min
@@ -390,7 +428,11 @@ ReturnBack:
 
     'STORE 4 : READ Missionsec,UserVar0  :STORE 2  'Read latest seconds
     'DEBUG CR,"missionSec = ",DEC uservar0,CR
-    WRITE ETable+TempReg0*5+3,UserVar0  : UserVar0=UserVar0+1  'Tag Event, increment tag count
+
+    'WARNING: This is used to run task only once per event entry
+    'Has side effect of persist eeprom storage that may mess up event table
+    'WRITE ETable+TempReg0*5+3,UserVar0  : UserVar0=UserVar0+1  'Tag Event, increment tag count
+
     STORE 0 : WRITE TagCnt,UserVar0                            'update TagCnt
     GOTO FoundEvent
 NextRow:NEXT
@@ -399,12 +441,12 @@ NextRow:NEXT
 
 FoundEvent:
 
-  'DEBUG CR,"found event: ",DEC UserVar3
+  DEBUG CR,"found event: ",DEC UserVar3
 
   STORE DataStorage ' return storage pointer to Slot 4
   DEBUG CR, "Dump Etable FOR DEBUG "
   STORE 2
-  FOR TempReg0 = 0 TO 40
+  FOR TempReg0 = 0 TO ETABLE_DEPTH
     DEBUG CR,"Event Table Row ",DEC TempReg0,":  "
     READ ETable+TempReg0*5+0,TempReg1 : DEBUG DEC TempReg1,"  "
     READ ETable+TempReg0*5+1,TempReg1 : DEBUG DEC TempReg1,"  "
@@ -415,313 +457,143 @@ FoundEvent:
   DEBUG CR,"End of Table",CR
 
   STORE DataStorage
-  BRANCH UserVar3,[Event0,    'Event 0 (do nothing)
-  Event1,                     'Event 1 (Take Picture)
-  Event2,                     'Event 2 (pump+motor)
-  Event3,                     'Event 3 (loop structure)
-  Event4]                     'Event 4 (LOOP everything)
+  BRANCH UserVar3,[Event0_ET_RET,              'Event 0 (do nothing; EventTableReturn)
+  Event1_TAKE_PHOTO,          'Event 1 (Take a photo)
+  Event2_PUMP_FORWARD,        'Event 2 (Move pump and motor forward)
+  Event3_PUMP_BACK,           'Event 3 (Pump backward for jam avoid)
+  Event4_PUMP_STOP,           'Event 4 (Pump/motor stop)
+  Event5_LED_ON,              'Event 5 (LED ON)
+  Event6_LED_OFF,             'Event 6 (LED OFF)
+  Event7_RETEST,              'Event 7 (Rerun test)
+  Event8_TEST_FAST]           'Event 8 (Fast forward for test only)
 
-
-
-  'IO 2,3 - LED
-  'IO 4,5 - Motor
-  'IO 6 -  solution pump 1
-  'IO 7 - solution pump 2
-
-
-  UserVar3 = 0                 'Error
-  DEBUG CR,"Event Byte is out of range",CR
+  DEBUG CR,"Event Byte is out of range", DEC UserVar3, CR
+  UserVar3 = 0                'Error
   GOTO ReturnBack              'back to calling routine
 
-Event0: DEBUG CR,"DN",CR
-        I2COUT InternI2C, PCF8574Address, [$FF]
+Event0_ET_RET: DEBUG CR,"EventTableReturn",CR
+#IF FlyConfig = 0 #THEN
+        STORE DataStorage
+        if UserVar4 = $ED then
+            GOTO EventTest
+        else
+            tempReg0 = 4 'Destination Index (EventTableReturn)
+            RUN 0        'Destination Slot
+        endif
+#ENDIF
+        STORE DataStorage
         tempReg0 = 4 'Destination Index (EventTableReturn)
         RUN 0        'Destination Slot
+   
 
-Event1: DEBUG CR,"TP",CR
-        I2COUT InternI2C, PCF8574address, [%11111011] 'IO2,3 LED, Pump and motor off (IO4,5 motor; IO6,7 pump)
+Event1_TAKE_PHOTO: DEBUG CR,"TakePhoto",CR
+        GOSUB SUB_LED_ON
+
         '
         '   Take a High Resolution Photo of the Chamber
         'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-        PUT    CameraRes,Camera320        'Template default
-        PUT    CameraQua,CameraNormal     'set to Normal
+        PUT    CameraRes,Camera320      'Set resolution
+        PUT    CameraQua,CameraBetter     'set photo quality
 
         PUT VectorFromSlot,2 'Return Slot
         PUT VectorFromNum,1  'Return Index
-        TempReg1 = 1    'Destination Index        '
+        TempReg1 = 1    'Destination Index
         TempReg3 = 6    'Destination Slot
         RUN 6           'Execute a slot goto procedure now doit
+
 TakePhotoReturn:
-        'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-        '
-
-        I2COUT InternI2C, PCF8574address, [$FF] 'IO2,3 LED, Pump and motor off (IO4,5 motor; IO6,7 pump)
-        ' Values in return back are lost when jumping to Slot 6
-        STORE 2
-        READ CoolIter, UserVar1
-        'DEBUG DEC UserVar1, CR
-        IF UserVar1 > 0 THEN
-         UserVar1 = UserVar1 - 1
-         WRITE CoolIter, UserVar1
-         'DEBUG DEC UserVar1, CR
-         GOTO Event1
-        ENDIF
-        'DEBUG DEC UserVar1, CR
-        STORE DataStorage
-        tempReg0 = 4 'Destination Index (EventTableReturn
-        RUN 0        'Destination Slot
-
-
-
-Event2: DEBUG CR,"PM" ,CR
-  STORE 2
-  READ list_iter, UserVar0
-  READ list_iter + UserVar0 + 1, UserVar2
-  FOR UserVar5 = 0 TO (UserVar2-1)
-  'DEBUG DEC UserVar5, CR
-  'DEBUG DEC UserVar2, CR
-  READ 2*UserVar5 + list_iter + 2, Word TempWord
-  'DEBUG HEX CR, 2*UserVar5 + list_iter + 2, CR
-  'DEBUG HEX CR, TempWord.HIGHBYTE
-  'DEBUG HEX CR, TempWord.LOWBYTE
-  IF UserVar5 // 2 = 0 THEN
-    I2COUT InternI2C, PCF8574address, [%10101110] 'IO2,3 LED, IO 4,5 Motor, IO 6,7 Pump
-    'DEBUG DEC CR, TempWord, CR
-    PAUSE TempWord
-    I2COUT InternI2C, PCF8574address, [$FF]
-  ELSE
-    I2COUT InternI2C, PCF8574address, [%10011110] 'IO2,3 LED, IO 4,5 Motor, IO 6,7 Pump
-    'DEBUG DEC CR, TempWord, CR
-    PAUSE TempWord
-    I2COUT InternI2C, PCF8574address, [$FF]
-  ENDIF
-  NEXT
-  WRITE CoolIter, 2
-  GOTO Event1
-  'STORE DataStorage
-  'tempReg0 = 4
-  'RUN 0
-
-
-
-
-
-
-'Event2: DEBUG CR,"PM" ,CR
-        'STORE 2
-        'READ list_iter, UserVar0        'list_iter is UserVar0
-        'READ list_iter+UserVar0+1, UserVar1    'num_switch is UserVar1
-        'READ list_iter+UserVar0+2, UserVar2    'og_switch is UserVar2
-        'READ 2*UserVar1+list_iter+UserVar0+3, Word TempWord    'interval_length is TempWord
-        'DEBUG DEC TempWord, CR
-        'IF TempWord < 32768 THEN      'checks IF num_switch is even
-        '  I2COUT InternI2C, PCF8574address, [%11111010] 'IO2,3 LED, IO 4,5 Motor, IO 6,7 Pump
-        '  PAUSE TempWord
-        '  I2COUT InternI2C, PCF8574address, [$FF]
-        'ELSE
-         ' I2COUT InternI2C, PCF8574address, [%11110101] 'IO2,3 LED, IO 4,5 Motor, IO 6,7 Pump
-         ' PAUSE TempWord - 32767
-        'I2COUT InternI2C, PCF8574address, [$FF]
-        'ENDIF
-        'tempReg0 = 4 'Destination Index (EventTableReturn)
-        'RUN 0        'Destination Slot
-
-
-'Event3: DEBUG CR,"LI"  ,CR
-        'STORE 2
-        'READ list_iter, UserVar0
-        'READ list_iter + UserVar0 + 1, UserVar1
-        'READ list_iter + UserVar0 + 2, UserVar3
-        'READ UserVar1*2 + list_iter + UserVar0 + 3, UserVar2
-        'READ UserVar1*2 + list_iter + UserVar0 + 3 + 1, UserVar5
-        'DEBUG DEC UserVar1*2 + list_iter + UserVar0 + 3 + 1, CR
-        'DEBUG UserVar1, CR
-        'DEBUG DEC UserVar2, CR
-        'DEBUG UserVar3, CR
-        ''DEBUG "INS:"
-        'DEBUG UserVar1, CR
-        'DEBUG "IOI:"
-        'DEBUG UserVar4, CR
-        'IF UserVar2 < UserVar5 - 1 THEN
-          'UserVar2 = UserVar2 + 1
-          'WRITE UserVar1*2 + list_iter + UserVar0 + 3, UserVar2
-          'DEBUG DEC UserVar2, CR
-          'STORE 0
-          'WRITE DurDay, 0: WRITE DurHour, 0: WRITE DurMin, 2 '0 23 59
-          'STORE 2
-          'FOR tempReg0 = 2 TO 3
-              'WRITE ETable+tempReg0*5+3, $FF   'Tag Event, increment tag count
-          'NEXT
-        'ELSE
-          'WRITE UserVar1*2 + list_iter+UserVar0 + 3, 0
-        'ENDIF
-        'DEBUG "PNI"
-        'DEBUG UserVar3, CR
-        'DEBUG "PNS:"
-        'DEBUG UserVar1, CR
-        'DEBUG "POI:"
-        'DEBUG UserVar5, CR
-        'STORE DataStorage
-        'tempReg0 = 4 'Destination Index (EventTableReturn)
-        'RUN 0        'Destination Slot
-
-
-
-'Event3: DEBUG CR,"LS" ,CR
-  '      STORE 2
-  '      READ list_iter, UserVar0
-  '     READ list_iter + UserVar0 + 1, UserVar1
-   '     READ list_iter + UserVar0 + 2, UserVar2
-   '     'DEBUG " initial num_switch: "
-    '    'DEBUG UserVar1, CR
-     '   'DEBUG "initial og_interval: "
-    '    'DEBUG UserVar4, CR
-    '    IF UserVar1 < UserVar2 - 1 THEN
-    '      UserVar1 = UserVar1 + 1
-    '      WRITE list_iter+UserVar0 + 1, UserVar1
-    '      STORE 0
-    '      WRITE DurDay, 0: WRITE DurHour, 0: WRITE DurMin, 2        '0 23 59
-    '      STORE 2
-    '      FOR tempReg0 = 2 TO 3
-    '          WRITE ETable+tempReg0*5+3, $FF   'Tag Event, increment tag count
-     '     NEXT
-     '   ELSE
-     '     WRITE  list_iter+UserVar0 + 1, 0
-     '   ENDIF
-     '   'DEBUG " initial num_switch: "
-     '   'DEBUG UserVar1, CR
-     '   'DEBUG "initial og_interval: "
-     '   'DEBUG UserVar4, CR
-     '   STORE DataStorage
-    '    tempReg0 = 4 'Destination Index (EventTableReturn)
-     '   RUN 0        'Destination Slot
-
-'Event4: DEBUG CR,"PL" ,CR
- '       STORE 2
- '       READ CoolIter, UserVar5
- '       IF UserVar5 < 1 THEN               '
- '         WRITE CoolIter, 2
- ''       ENDIF
- ''       IF UserVar5 > 0 THEN
- '         UserVar5 = UserVar5 - 1
- '         WRITE CoolIter, UserVar5
- ''         STORE 0
-  ''        WRITE DurDay, 0: WRITE DurHour, 0: WRITE DurMin, 8        '1 0 18
-  '        STORE 2
-  '        FOR tempReg0 = 7 TO 8  'rows 7 AND 8
- '             WRITE ETable+tempReg0*5+3, $FF   'Tag Event, increment tag count
- ''         NEXT
- '       ENDIF
- '       STORE DataStorage
-'        tempReg0 = 4 'Destination Index (EventTableReturn)
-'        RUN 0        'Destination Slot
-
-
-Event3: DEBUG CR,"LSt" ,CR
-        STORE 2
-        READ list_iter, UserVar0
-        'READ list_iter + UserVar0 + 1, UserVar1
-        READ list_iter + UserVar0 + 1, UserVar2
-        'DEBUG "initial list_iter:"
-        'DEBUG UserVar0, CR
-        IF UserVar0 < 89 THEN
-          UserVar0 = 2*UserVar2 + UserVar0 + 1
-          WRITE  list_iter, UserVar0
-          STORE 0
-          WRITE DurDay, 0: WRITE DurHour, 23: WRITE DurMin, 49     '0 23 49
-          STORE 2
-          FOR tempReg0 = 1 TO 3         'rows 1 to 3
-              WRITE ETable+tempReg0*5+3, $FF   'Tag Event, increment tag count
-          NEXT
-        ELSE
-          WRITE  list_iter, 0
-        ENDIF
-        'DEBUG HEX (list_iter+UserVar0), CR
-        'DEBUG "initial list_iter:"
-        'DEBUG UserVar0, CR
-        STORE DataStorage
-        tempReg0 = 4 'Destination Index (EventTableReturn)
-        RUN 0        'Destination Slot
-
-Event4: DEBUG CR,"LE" ,CR
-        STORE 2
-        READ main_iter, UserVar0
-        IF UserVar0 > 0 THEN
-        UserVar0 = UserVar0 - 1
-        WRITE main_iter, UserVar0
+        DEBUG "TakePhotoReturn",CR
         STORE 0
-        WRITE DurDay, 0: WRITE DurHour, 23: WRITE DurMin, 49               '0 23 49
-        STORE 2
-        FOR tempReg0 = 1 TO 17     'LOOP everything
-          WRITE ETable+tempReg0*5+3, $FF   'Tag Event, increment tag count
-        NEXT
-        ENDIF
-        STORE DataStorage
-        tempReg0 = 4 'Destination Index (EventTableReturn)
-        RUN 0        'Destination Slot
-
-'Event7: DEBUG CR, "BE", CR
-      '  GOSUB Event1
-      '  GOSUB Event1
-      '  GOSUB Event1
-      '  tempReg0 = 4
-      '  RUN 0
+	'Fake time as if TakePhoto take no time
+        WRITE DurDay, UserVar2 : WRITE DurHour, UserVar1 : WRITE DurMin, UserVar0
+        ' Values in return back are lost when jumping to Slot 6
+        GOTO Event0_ET_RET
 
 
+Event2_PUMP_FORWARD: DEBUG CR,"ALL ON" ,CR
+	WRITE PumpBack, 1
+        I2COUT InternI2C, PCF8574address, [%10111110] 'Both pumps + motor forward; LED on
+        GOTO Event1_TAKE_PHOTO
 
+Event3_PUMP_BACK: DEBUG CR,"Pump back to avoid needle jam"  ,CR
+        'For each forward, only backward once
+        READ PumpBack, UserVar5
+        if UserVar5 = 1 then
+            WRITE PumpBack, 0
+            I2COUT InternI2C, PCF8574address, [%01111101]
+            PAUSE 2000   'Run to 2 seconds
+            I2COUT InternI2C, PCF8574Address, [%00001000] 'Pumo/motor off; LED on
+        endif
+        GOTO Event0_ET_RET
 
+Event4_PUMP_STOP: DEBUG CR,"Pump/motor stop" ,CR
+        I2COUT InternI2C, PCF8574Address, [%00001000] 'Pumo/motor off; LED on
+        GOTO Event1_TAKE_PHOTO
 
+SUB_LED_ON:
+        'Signal slave STAMP to take photos
+        OUTPUT 14
+        OUT14 = 1
+        I2CIN  InternI2C, PCF8574address, [UserVar5]
+        I2COUT InternI2C, PCF8574address, [UserVar5 | %00001000]
+        RETURN
 
+Event5_LED_ON:
+        GOSUB SUB_LED_ON
+        GOTO Event0_ET_RET
 
+Event6_LED_OFF:
+        'Signal slave to stop taking photos
+        OUT14 = 0
+        I2CIN  InternI2C, PCF8574address, [UserVar5]
+        I2COUT InternI2C, PCF8574address, [UserVar5 & %11110111]
+        GOTO Event0_ET_RET
 
+RETEST:
+        STORE 0
+        WRITE DurDay, 1: WRITE DurHour, 06: WRITE DurMin, 00  '01:06:00
+	GOTO Event0_ET_RET
 
+Event7_RETEST: DEBUG CR,"RTST" ,CR
+        GOTO RETEST
+
+Event8_TEST_FAST:
+        #IF FlyConfig = 0 #THEN
+                DEBUG CR,"Test fast 1 day",CR
+		GOTO RETEST
+        #ENDIF
+        'No-op
+        GOTO Event0_ET_RET
 
   '
   '======================================================================
 P1vector:
-        '
-        '
-  GOTO ReturnBack      'back to calling routine
-
-  '
-    '======================================================================
 P2vector:
-        '
-        '
-  GOTO ReturnBack      'back to calling routine
-  '
-    '======================================================================
 P3vector:
-  '
-  '
   GOTO ReturnBack      'back to calling routine
 
-
-
-         '    Day  Hour  Min   Tag  EventByte           Day Hour Min Tag EventByte
- ETable DATA  00,  00,   00,   $FF,     00   'Row 0     00, 00, 00, $FF, 00       |   0 0 0
-        DATA  00,  23,   50,   $FF,     01   'Row 1     00, 00, 02, $FF, 01       |   0 23 50
-        DATA  01,  00,   01,   $FF,     02   'Row 2     00, 00, 03, $FF, 02       |   1 0 0
-        DATA  01,  00,   10,   $FF,     03   'Row 3     00, 00, 04, $FF, 01       |   1 0 9
-        DATA  01,  00,   11,   $FF,     04   'Row 4     00, 00, 05, $FF, 01       |   1 0 10
-        DATA  01,  00,   12,   $FF,     04   'Row 5     00, 00, 06, $FF, 01       |   1 0 11
-        DATA  01,  00,   13,   $FF,     04   'Row 6     00, 00, 07, $FF, 03       |   1 0 12
-        DATA  01,  00,   14,   $FF,     04   'Row 7     00, 00, 08, $FF, 04       |   1 0 13
-        DATA  01,  00,   15,   $FF,     04   'Row 8     00, 00, 09, $FF, 04       |   1 0 14
-        DATA  01,  00,   16,   $FF,     04   'Row 9     00, 00, 10, $FF, 04       |   1 0 15
-        DATA  01,  00,   17,   $FF,     04   'Row 10    00, 00, 11, $FF, 04       |   1 0 30
-        DATA  01,  00,   18,   $FF,     04   'Row 11    00, 00, 12, $FF, 04       |   1 0 33
-        DATA  01,  00,   19,   $FF,     04   'Row 12    00, 00, 13, $FF, 04       |   1 0 38
-        DATA  01,  00,   20,   $FF,     04   'Row 13    00, 00, 14, $FF, 04       |   1 0 43
-        DATA  01,  00,   21,   $FF,     04   'Row 14    00, 00, 15, $FF, 04       |   1 0 48
-        DATA  01,  00,   22,   $FF,     04  'Row 15    00, 00, 16, $FF, 04       |   1 0 53
-        DATA  01,  00,   23,   $FF,     04   'Row 16    00, 00, 17, $FF, 04       |   1 0 58
-        DATA  01,  00,   24,   $FF,     04   'Row 17    00, 00, 18, $FF, 04       |
+        '     Day  Hour  Min   Tag  EventByte
+ETable  DATA  00,  00,   00,   $00,     00   'Row 0 Disabled
+        DATA  00,  00,   01,   $FF,     01   'Row 1 take a test photo
+        DATA  00,  00,   03,   $FF,     01   'Row 2 take a test photo
+        DATA  00,  00,   04,   $FF,     06   'Row 3 LED OFF
+        DATA  00,  00,   05,   $FF,     08   'Row 4 Test mode only fast forward
+        DATA  01,  06,   02,   $FF,     02   'Row 5 Pump forward
+        DATA  01,  06,   03,   $FF,     04   'Row 6 Pump stop
+        DATA  01,  06,   04,   $FF,     06   'Row 7 LED OFF
+        DATA  01,  06,   04,   $00,     01   'Row 8 Take photo (disabled)
+        DATA  01,  06,   05,   $FF,     03   'Row 9 Pump back for jam avoid
+        DATA  01,  06,   15,   $FF,     07   'Row 10 Retest
+        DATA  01,  06,   16,   $FF,     07   'Row 11 Retest
+        DATA  01,  06,   17,   $FF,     07   'Row 12 Retest
+        DATA  01,  06,   30,   $FF,     07   'Row 13 Retest
+        DATA  01,  07,   00,   $FF,     07   'Row 14 Retest
+        DATA  02,  00,   00,   $FF,     07   'Row 15 Retest
 
 
 
+'Warning: Update depth after add/delete ETable entries
+ETABLE_DEPTH CON 18
 
-''list_iter, og_switch1, TempWord1, og_switch2, TempWord2
-list_iter DATA 0, 1, Word 3000, 1, Word 6000, 2, Word 0, Word 3000, 2, Word 0, Word 6000, 1, Word 12000, 2, Word 6000, Word 6000, 3, Word 0, Word 3000, Word 3000, 1, Word 18000, 8, Word 1500, Word 1500, Word 1500, Word 1500, Word 1500, Word 1500, Word 1500, Word 1500, 4, Word 6000, Word 3000, Word 6000, Word 3000, 2, Word 0, Word 24000, 4, Word 3000, Word 3000, Word 3000, Word 3000, 3, Word 1500, Word 3000, Word 1500, 3, Word 4500, Word 1500, Word 3000, 3, Word 4500, Word 3000, Word 4500
-CoolIter DATA 0
-main_iter DATA 5 'insert number of times to loop data list
+PumpBack DATA
+
